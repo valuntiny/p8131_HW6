@@ -1,0 +1,131 @@
+---
+title: "HW6_answer"
+author: "Guojing Wu | gw2383"
+date: "3/31/2019"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, 
+                      message = F, 
+                      warning = F)
+library(tidyverse)
+library(nlme)
+theme_set(theme_bw())
+```
+
+## Problem 1
+
+$$
+\begin{split}
+varY_{i,j} 
+&= var(\mu + b_{i} + e_{i,j}) \\
+&= var(b_{i}) + var(e_{i,j}) \\
+&= \sigma_{b}^{2} + \sigma_{e}^{2} \\
+cov(Y_{i,j},Y_{i,k})
+&= E(Y_{i,j}Y_{i,k}) - E(Y_{i,j})E(Y_{i,k}) \\
+&= E[(\mu + b_{i} + e_{i,j})(\mu + b_{i} + e_{i,k})] - E(Y_{i,j})E(Y_{i,k}) \\
+&= E(\mu^{2} + b_{i}^{2} + 2\mu b_{i} + \mu e_{i,j} + \mu e_{i,k} + b_{i}e_{i,j} + b_{i}e_{i,k} + e_{i,j}e_{i,k}) - \mu^{2} \\
+\end{split}
+$$
+
+Since $b_{i} \sim N(0, \sigma_{b}^{2})$, $(\frac{b_{i}}{\sigma_{b}})^{2} \sim \chi_{1}^{2}$, so $E(b_{i}^{2}) = \sigma_{b}^{2}$. And since $e_{i,j},e_{i,k}$ are independent, $E(e_{i,j}e_{i,k}) = E(e_{i,j})(e_{i,k})$. So, 
+
+$$
+\begin{split}
+cov(Y_{i,j},Y_{i,k})
+&= \mu^{2} + \sigma_{b}^{2} - \mu^{2} \\
+&= \sigma_{b}^{2} \\
+corr(Y_{i,j},Y_{i,k})
+&= \frac{cov(Y_{i,j},Y_{i,k})}{\sqrt{varY_{i,j}varY_{i,k}}} \\
+&= \frac{\sigma_{b}^{2}}{\sigma_{b}^{2} + \sigma_{e}^{2}} \\
+\end{split}
+$$
+
+This suggest that the covariance pattern is compound symmetry
+
+## Problem 2
+
+```{r}
+data_dist = read.table("HW6-dental.txt", header = T) %>% 
+  mutate(Child = as.factor(Child), 
+         Gender = as.factor(Gender))
+```
+
+### 1) spaghetti plot
+
+```{r, dpi = 300}
+data_dist %>%
+  ggplot(aes(x = Age, y = Distance, group = Child, col = Child)) + 
+  geom_line()
+```
+
+In general, the older the child is, the longer the distance is.
+
+### 2)
+
+We assume that $Y_{1} \sim Y_{16}$ is male and $Y_{17} \sim Y_{27}$ is female. The covariance within same person is $\sigma_{a}^{2}$, the covariance within the same gender is $\sigma_{b}^{2}$:
+
+$$
+\begin{split}
+E(Y_{i,j}) &= \beta_{0} + \beta_{1}age_{i,j} \\
+\Sigma_{Y_{i}} &= 
+\begin{pmatrix} 
+  \sigma_{a}^{2} + \sigma_{b}^{2} + \sigma_{e}^{2} & \sigma_{a}^{2} + \sigma_{b}^{2} & ... & \sigma_{a}^{2} + \sigma_{b}^{2} \\
+   & \sigma_{a}^{2} + \sigma_{b}^{2} + \sigma_{e}^{2} & ... & \sigma_{a}^{2} + \sigma_{b}^{2} \\
+   & & ... \\
+   & & ... & \sigma_{a}^{2} + \sigma_{b}^{2} + \sigma_{e}^{2}
+\end{pmatrix} \\
+\bf{\Sigma} &=
+\begin{pmatrix} 
+  \Sigma_{Y_{1}} & \sigma_{b}^{2}E & ... & \sigma_{b}^{2}E & 0 & 0 & & 0 \\
+   & \Sigma_{Y_{2}} & ... & \sigma_{b}^{2}E & 0 & 0 & & 0 \\
+   & & ... & \\
+   & & & \Sigma_{Y_{16}} & 0 & 0 &  & 0 \\
+   & & & & \Sigma_{Y_{17}} & \sigma_{b}^{2}E & ... & \sigma_{b}^{2}E \\
+   & & & & & \Sigma_{Y_{18}} & ... & \sigma_{b}^{2}E \\
+   & & & & & & ... & \\
+   & & & & & & ... & \Sigma_{Y_{27}} \\
+\end{pmatrix}
+\end{split}
+$$
+
+### 3)
+
+#### i)
+
+```{r}
+CompSymm <- gls(Distance ~ Age + Gender, data_dist, correlation = corCompSymm(form = ~ 1 | Child), weights = varIdent(form = ~ 1| Age), method = "REML")
+
+Expo <- gls(Distance ~ Age + Gender, data_dist, correlation = corExp(form = ~ 1 | Child), weights = varIdent(form = ~ 1| Age), method = "REML")
+
+Auto <- gls(Distance ~ Age + Gender, data_dist, correlation = corAR1(form = ~ 1 | Child), weights = varIdent(form = ~ 1| Age), method = "REML")
+
+coeff = rbind(CompSymm$coefficients, Expo$coefficients, Auto$coefficients)
+rownames(coeff) = c("CompSymmetry", "Exponential", "Autoregressive")
+coeff %>% knitr::kable()
+```
+
+By the table above, the coefficient parameter estimates obtained by three methods are very similar.
+
+#### ii)
+
+```{r}
+varfunc = rbind(CompSymm$modelStruct$varStruct, Expo$modelStruct$varStruct, Auto$modelStruct$varStruct)
+varfunc = cbind(rep(0, nrow(varfunc)), varfunc)
+rownames(varfunc) = c("CompSymmetry", "Exponential", "Autoregressive")
+colnames(varfunc) = c("8", "10", "12", "14")
+varfunc %>% exp() %>% knitr::kable()
+```
+
+By the table above, the variance function of different age obtained by three methods are very similar.
+
+#### iii)
+
+```{r}
+getVarCov(CompSymm)
+getVarCov(Expo)
+getVarCov(Auto)
+```
+
+By the table above, the covariance matrices matches each pattern. And since it's equal intervals of time, the autoregression and exponential methods are pretty similar.
